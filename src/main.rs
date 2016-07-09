@@ -5,6 +5,7 @@ extern crate lazy_static;
 extern crate regex;
 #[macro_use]
 extern crate prettytable;
+extern crate gnuplot;
 
 mod benchmark;
 mod utils;
@@ -38,29 +39,49 @@ Compares Rust micro-benchmark results.
 Usage:
     cargo benchcmp [options] <file> <file>
     cargo benchcmp [options] <name> <name> <file>...
+    cargo benchcmp plot <file>...
     cargo benchcmp -h | --help
 
 The first version takes two file and compares the common bench-tests.
 The second version takes two module names and one or more files, and compares
 the common bench-tests of the two modules.
 
-Options:
+General options:
     -h, --help           show this help message and exit
+    --output <file>      write to this output file instead of stdout
+    --variance           show variance
+
+Comparison options:
     --threshold <n>      only show comparisons with a percentage change greater
                          than this threshold
-    --variance           show variance
     --show <option>      show regressions, improvements or both [default: both]
     --strip-fst <regex>  a regex to strip from first benchmarks' names
     --strip-snd <regex>  a regex to strip from second benchmarks' names
+    --plot-cmp           plot the comparison instead of printing as table
+                         (you can also set the --output-format when using this
+                         option)
+
+Plot command options (requires gnuplot):
+    --plot-mode <mode>   plot all the benchmarks, instead of comparing two.
+                         benchmarks can be grouped by file name or module
+                         name [default: module]
+    --output-format <format>
+                         Plot output formats are: gnuplot (the commands),
+                         pdf, eps, png [default: png]
 "#;
 
 #[derive(Debug, RustcDecodable)]
 struct Args {
-    flag_threshold: Option<u8>,
+    flag_output: Option<String>,
     flag_variance: bool,
+    flag_threshold: Option<u8>,
     flag_show: ShowOption,
     flag_strip_fst: Option<String>,
     flag_strip_snd: Option<String>,
+    flag_plot_cmp: bool,
+    flag_plot_mode: PlotMode,
+    flag_output_format: OutputFormat,
+    cmd_plot: bool,
     arg_name: Option<[String; 2]>,
     arg_file: Vec<String>,
 }
@@ -70,6 +91,20 @@ enum ShowOption {
     Regressions,
     Improvements,
     Both,
+}
+
+#[derive(Debug, RustcDecodable, PartialEq, Eq)]
+enum PlotMode {
+    File,
+    Module
+}
+
+#[derive(Debug, RustcDecodable, PartialEq, Eq)]
+enum OutputFormat {
+    Gnuplot,
+    Pdf,
+    Eps,
+    Png,
 }
 
 fn main() {
