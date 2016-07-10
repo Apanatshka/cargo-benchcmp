@@ -1,6 +1,7 @@
 use regex::Regex;
 use prettytable::row::Row;
 
+use std::io;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::fs::File;
@@ -8,12 +9,21 @@ use std::fs::File;
 use utils::{drop_commas_and_parse, fmt_thousands_sep};
 
 /// All extractable data from a single micro-benchmark.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Benchmark {
     pub name: String,
     pub ns: usize,
     pub variance: usize,
     pub throughput: Option<usize>,
+}
+
+/// A collection of `Benchmark`s with a name for the collection.
+/// The name is usually the file the `Benchmark`s were read from,
+///  or the module they were all in.
+#[derive(Debug, Clone)]
+pub struct Benchmarks {
+    pub name: String,
+    pub benchmarks: Vec<Benchmark>,
 }
 
 /// A comparison between an old and a new benchmark.
@@ -22,12 +32,27 @@ pub struct Benchmark {
 /// is slower than a new benchmark, then the difference is negative.
 /// Conversely, if an old benchmark is faster than a new benchmark,
 /// then the difference is positive.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Comparison {
     pub fst: Benchmark,
     pub snd: Benchmark,
     pub diff_ns: i64,
     pub diff_ratio: f64,
+}
+
+/// A list of benchmarks with the same name, where each benchmark is associated
+///  with the file or module from which it came. The name of the benchmark is
+///  also available at this struct's level for convenience.
+#[derive(Debug, Clone)]
+pub struct Comparisons {
+    pub bench_name: String,
+    pub assocs: Vec<(String, Benchmark)>,
+}
+
+impl Comparisons {
+    pub fn compare(&self, i1: usize, i2: usize) -> Comparison {
+        self.assocs[i1].1.clone().compare(self.assocs[i2].1.clone())
+    }
 }
 
 impl Benchmark {
@@ -109,14 +134,30 @@ impl Comparison {
     }
 }
 
-pub fn parse_benchmarks(all_benchmarks: File) -> Box<Iterator<Item=Benchmark>> {
-    let reader = BufReader::new(all_benchmarks);
+/// Tries to use the string as path to open a File. Reads the benchmarks from the file.
+pub fn parse_benchmarks(s: String) -> Result<Benchmarks, io::Error> {
+    let file = try!(File::open(s.clone()));
+
+    let reader = BufReader::new(file);
 
     let lines = reader.lines().skip_while(|r| match *r {
         Ok(ref s) => s.is_empty(),
         _ => true,
     });
 
-    Box::new(lines.filter_map(Result::ok)
-        .filter_map(Benchmark::parse))
+    Ok(Benchmarks {
+        name: s,
+        benchmarks: lines.filter_map(Result::ok)
+            .filter_map(Benchmark::parse)
+            .collect(),
+    })
+}
+
+impl Benchmarks {
+    pub fn new(name: String) -> Self {
+        Benchmarks {
+            name: name,
+            benchmarks: Vec::new(),
+        }
+    }
 }
