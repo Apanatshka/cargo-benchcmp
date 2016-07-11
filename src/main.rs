@@ -316,6 +316,10 @@ fn write_pairs(file: Option<String>,
                -> Result<(), io::Error> {
     use ShowOption::{Regressions, Improvements};
 
+    let (singles, pairs) = pairs.into_iter().partition(|c| c.assocs.len() < 2);
+
+    warn_missing(singles);
+
     let mut output = prettytable::Table::new();
     output.set_format(*format::consts::FORMAT_CLEAN);
 
@@ -371,14 +375,16 @@ fn strip_names(mut benches: Benchmarks,
 }
 
 /// Print a warning message if there are benchmarks outside of the overlap
-fn warn_missing(v: Vec<Benchmark>, s: &str) {
-    use std::ops::Not;
+fn warn_missing(v: Vec<Comparisons>) {
+    let mut map = BTreeMap::new();
 
-    if v.is_empty().not() {
-        err_println!("{}: {:?}",
-                     s,
-                     v.into_iter()
-                         .map(|n| n.name)
-                         .collect::<Vec<String>>());
+    for comparisons in v {
+        map.entry(comparisons.assocs[0].0.clone()).or_insert_with(Vec::new).push(comparisons.bench_name);
+    }
+
+    for (k,v) in map {
+        err_println!("WARNING: found test(s) {:?} only in {}",
+                     v,
+                     k);
     }
 }
