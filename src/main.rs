@@ -112,6 +112,7 @@ struct Settings {
     tool_mode: ToolMode,
     variance: bool,
     filenames: Vec<String>,
+    output_file: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -138,6 +139,7 @@ enum PlotSubject {
 impl Args {
     fn into_settings(self) -> Settings {
         Settings {
+            output_file: self.flag_output,
             variance: self.flag_variance,
             filenames: self.arg_file.clone(),
             tool_mode: if self.cmd_plot {
@@ -202,7 +204,12 @@ fn main() {
                 Plot(_, format) => {
                     unimplemented!();
                 }
-                Table(_) => write_pairs(pairs, settings.variance, details),
+                Table(_) => {
+                    try_print_err!(write_pairs(settings.output_file,
+                                               pairs,
+                                               settings.variance,
+                                               details));
+                }
             }
         }
         Plot(Everything, format) => {
@@ -302,7 +309,11 @@ fn filter_benchmarks(benchmarks: Vec<Benchmarks>,
 }
 
 /// Write the pairs of benchmarks in a table, along with their comparison
-fn write_pairs(pairs: Vec<Comparisons>, variance: bool, details: &ComparisonDetails) {
+fn write_pairs(file: Option<String>,
+               pairs: Vec<Comparisons>,
+               variance: bool,
+               details: &ComparisonDetails)
+               -> Result<(), io::Error> {
     use ShowOption::{Regressions, Improvements};
 
     let mut output = prettytable::Table::new();
@@ -327,7 +338,16 @@ fn write_pairs(pairs: Vec<Comparisons>, variance: bool, details: &ComparisonDeta
         output.add_row(comparison.to_row(variance));
     }
 
-    output.printstd();
+    match file {
+        Some(str) => {
+            try!(File::create(str).and_then(|mut f| output.print(&mut f)));
+        }
+        None => {
+            output.printstd();
+        }
+    }
+
+    Ok(())
 }
 
 /// Filter the names in every benchmark, based on the regex string
