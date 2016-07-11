@@ -15,11 +15,10 @@ use regex::Regex;
 use prettytable::format;
 
 use benchmark::{Comparisons, Benchmarks, Benchmark, parse_benchmarks};
-use utils::find_overlap;
 
 use std::io;
 use std::io::prelude::*;
-use std::fs;
+use std::fs::File;
 use std::collections::btree_map::BTreeMap;
 
 use OutputMode::*;
@@ -145,7 +144,7 @@ impl Args {
                 self.flag_plot_mode
             } else {
                 match self.arg_name {
-                    Some(ref ignore) => ToolMode::Module,
+                    Some(_) => ToolMode::Module,
                     None => ToolMode::File,
                 }
             },
@@ -332,7 +331,9 @@ fn write_pairs(pairs: Vec<Comparisons>, variance: bool, details: &ComparisonDeta
 }
 
 /// Filter the names in every benchmark, based on the regex string
-fn strip_names(mut benches: Benchmarks, strip: &Option<String>) -> Result<Benchmarks, regex::Error> {
+fn strip_names(mut benches: Benchmarks,
+               strip: &Option<String>)
+               -> Result<Benchmarks, regex::Error> {
     match *strip {
         None => Ok(benches),
         Some(ref s) => {
