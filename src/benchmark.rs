@@ -1,4 +1,3 @@
-use regex;
 use regex::Regex;
 use prettytable::row::Row;
 
@@ -168,21 +167,13 @@ impl Benchmarks {
 }
 
 /// Filter the names in every benchmark, based on the regex string
-pub fn strip_names(mut benches: Benchmarks,
-                   strip: &Option<String>)
-                   -> Result<Benchmarks, regex::Error> {
-    match *strip {
-        None => Ok(benches),
-        Some(ref s) => {
-            let re = try!(Regex::new(s.as_str()));
-            benches.benchmarks = benches.benchmarks
-                .into_iter()
-                .map(|mut b| {
-                    b.filter_name(&re);
-                    b
-                })
-                .collect();
-            Ok(benches)
-        }
-    }
+pub fn strip_names(mut benches: Benchmarks, re: &Regex) -> Benchmarks {
+    benches.benchmarks = benches.benchmarks
+        .into_iter()
+        .map(|mut b| {
+            b.filter_name(re);
+            b
+        })
+        .collect();
+    benches
 }

@@ -15,6 +15,7 @@ mod utils;
 use docopt::Docopt;
 use prettytable::format;
 use gnuplot::Figure;
+use regex::Regex;
 
 use cmd::{TableSettings, PlotSettings, CompareBy};
 use benchmark::{Comparisons, Benchmarks, Benchmark, parse_benchmarks, strip_names};
@@ -62,6 +63,8 @@ fn main() {
     let benchmarks = try_print_err!(read_benchmarks(settings.files));
     // These benchmarks may be maps "module -> benchmark+"
     let benchmarks = by_module_name(benchmarks, settings.tool_mode.get_compare_by());
+    // These benchmark names are stripped with the given regex
+    let benchmarks = try_print_err!(strip_bench_names(benchmarks, settings.strip_names));
 
     match settings.tool_mode {
         Table(settings) => {
@@ -122,6 +125,18 @@ fn by_module_name(benchmarks: Vec<Benchmarks>, tool_mode: CompareBy) -> Vec<Benc
     }
 }
 
+fn strip_bench_names(benchmarks: Vec<Benchmarks>,
+                     option: Option<String>)
+                     -> Result<Vec<Benchmarks>, regex::Error> {
+    Ok(match option {
+        Some(s) => {
+            let re = try!(Regex::new(s.as_str()));
+            benchmarks.into_iter().map(|b| strip_names(b, &re)).collect()
+        }
+        None => benchmarks,
+    })
+}
+
 fn by_bench_name(benchmarks: Vec<Benchmarks>) -> Vec<Comparisons> {
     let mut map: BTreeMap<String, Vec<(String, Benchmark)>> = {
         benchmarks.iter()
@@ -163,13 +178,9 @@ fn filter_benchmarks(benchmarks: Vec<Benchmarks>,
     }
     Ok(match settings.compare_by {
         Module(ref name_0, ref name_1) => {
-            vec![try!(strip_names(b_w_name(&benchmarks, name_0), &settings.strip_fst)),
-                 try!(strip_names(b_w_name(&benchmarks, name_1), &settings.strip_snd))]
+            vec![b_w_name(&benchmarks, name_0), b_w_name(&benchmarks, name_1)]
         }
-        File => {
-            vec![try!(strip_names(benchmarks[0].clone(), &settings.strip_fst)),
-                 try!(strip_names(benchmarks[1].clone(), &settings.strip_snd))]
-        }
+        File => vec![benchmarks[0].clone(), benchmarks[1].clone()],
     })
 }
 

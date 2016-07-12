@@ -19,6 +19,7 @@ Modes:
 General options:
     -h, --help          show this help message and exit
     --no-color          suppress coloring of improvements/regressions
+    --strip-names <re>  a regex to strip from benchmarks' names
 
 Comparison options:
     --by-module         take two module names before the files and compare
@@ -29,8 +30,6 @@ Comparison options:
                         than this threshold
     --regressions       show only regressions
     --improvements      show only improvements
-    --strip-fst <re>    a regex to strip from first benchmarks' names
-    --strip-snd <re>    a regex to strip from second benchmarks' names
 
 Plot command options (requires gnuplot):
     --by <cmp>          plot benchmarks by file or module [default: module]
@@ -55,8 +54,7 @@ pub struct Args {
     flag_threshold: Option<u8>,
     flag_regressions: bool,
     flag_improvements: bool,
-    flag_strip_fst: Option<String>,
-    flag_strip_snd: Option<String>,
+    flag_strip_names: Option<String>,
 
     flag_by: CompareBy,
     flag_format: OutputFormat,
@@ -92,6 +90,7 @@ impl fmt::Display for OutputFormat {
 pub struct Settings {
     pub files: Vec<String>,
     pub tool_mode: ToolMode,
+    pub strip_names: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -107,8 +106,6 @@ pub struct TableSettings {
     pub variance: bool,
     pub threshold: Option<u8>,
     pub show: Show,
-    pub strip_fst: Option<String>,
-    pub strip_snd: Option<String>,
     pub color: bool,
 }
 
@@ -166,6 +163,7 @@ impl Args {
 
         Settings {
             files: arg_file,
+            strip_names: self.flag_strip_names,
             tool_mode: if self.cmd_plot {
                 Plot(PlotSettings {
                     compare_by: self.flag_by,
@@ -189,8 +187,6 @@ impl Args {
                     } else {
                         Both
                     },
-                    strip_fst: self.flag_strip_fst,
-                    strip_snd: self.flag_strip_snd,
                     color: !self.flag_no_color,
                 })
             },
