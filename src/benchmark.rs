@@ -1,3 +1,4 @@
+use regex;
 use regex::Regex;
 use prettytable::row::Row;
 
@@ -113,7 +114,7 @@ impl Benchmark {
 }
 
 impl Comparison {
-    pub fn to_row(&self, variance: bool) -> Row {
+    pub fn to_row(&self, variance: bool, regression: bool) -> Row {
 
         let name = format!("{}", self.fst.name);
 
@@ -130,7 +131,11 @@ impl Comparison {
 
         let diff_ratio = format!("{:.2}%", self.diff_ratio * 100f64);
 
-        row![name, fst_ns, snd_ns, r->diff_ns, r->diff_ratio]
+        if regression {
+            row![Fr->name, Fr->fst_ns, Fr->snd_ns, Frr->diff_ns, Frr->diff_ratio]
+        } else {
+            row![Fg->name, Fg->fst_ns, Fg->snd_ns, Fgr->diff_ns, Fgr->diff_ratio]
+        }
     }
 }
 
@@ -158,6 +163,26 @@ impl Benchmarks {
         Benchmarks {
             name: name,
             benchmarks: Vec::new(),
+        }
+    }
+}
+
+/// Filter the names in every benchmark, based on the regex string
+pub fn strip_names(mut benches: Benchmarks,
+                   strip: &Option<String>)
+                   -> Result<Benchmarks, regex::Error> {
+    match *strip {
+        None => Ok(benches),
+        Some(ref s) => {
+            let re = try!(Regex::new(s.as_str()));
+            benches.benchmarks = benches.benchmarks
+                .into_iter()
+                .map(|mut b| {
+                    b.filter_name(&re);
+                    b
+                })
+                .collect();
+            Ok(benches)
         }
     }
 }
