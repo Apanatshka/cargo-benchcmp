@@ -18,7 +18,7 @@ use gnuplot::Figure;
 use regex::Regex;
 
 use cmd::{TableSettings, PlotSettings, CompareBy};
-use benchmark::{Comparisons, Benchmarks, Benchmark, parse_benchmarks, strip_names};
+use benchmark::{NamedComparisons, NamedBenchmarks, Benchmark, parse_benchmarks, strip_names};
 
 use std::io;
 use std::io::prelude::*;
@@ -84,22 +84,22 @@ fn main() {
 }
 
 // Reads the benchmarks from the files
-fn read_benchmarks(filenames: Vec<String>) -> Result<Vec<Benchmarks>, io::Error> {
+fn read_benchmarks(filenames: Vec<String>) -> Result<Vec<NamedBenchmarks>, io::Error> {
     filenames.into_iter().map(parse_benchmarks).collect()
 }
 
 // Check if the benchmarks should be gathered by module instead of by file,
 //  if so, do that.
-fn by_module_name(benchmarks: Vec<Benchmarks>, tool_mode: CompareBy) -> Vec<Benchmarks> {
+fn by_module_name(nbs: Vec<NamedBenchmarks>, tool_mode: CompareBy) -> Vec<NamedBenchmarks> {
     use cmd::CompareBy::*;
     match tool_mode {
-        File => benchmarks,
+        File => nbs,
         Module => {
-            let benchmarks = benchmarks.into_iter().flat_map(|b| b.benchmarks);
+            let bs = nbs.into_iter().flat_map(|nb| nb.benchmarks);
 
             let mut map = BTreeMap::new();
 
-            for b in benchmarks {
+            for b in bs {
                 let mut split = b.name.splitn(2, "::");
 
                 let module = String::from(split.next().unwrap());
@@ -115,7 +115,7 @@ fn by_module_name(benchmarks: Vec<Benchmarks>, tool_mode: CompareBy) -> Vec<Benc
 
             map.into_iter()
                 .map(|(k, v)| {
-                    Benchmarks {
+                    NamedBenchmarks {
                         name: k.to_owned(),
                         benchmarks: v,
                     }
@@ -125,35 +125,35 @@ fn by_module_name(benchmarks: Vec<Benchmarks>, tool_mode: CompareBy) -> Vec<Benc
     }
 }
 
-fn strip_bench_names(benchmarks: Vec<Benchmarks>,
+fn strip_bench_names(nbs: Vec<NamedBenchmarks>,
                      option: Option<String>)
-                     -> Result<Vec<Benchmarks>, regex::Error> {
+                     -> Result<Vec<NamedBenchmarks>, regex::Error> {
     Ok(match option {
         Some(s) => {
             let re = try!(Regex::new(s.as_str()));
-            benchmarks.into_iter().map(|b| strip_names(b, &re)).collect()
+            nbs.into_iter().map(|nb| strip_names(nb, &re)).collect()
         }
-        None => benchmarks,
+        None => nbs,
     })
 }
 
-fn by_bench_name(benchmarks: Vec<Benchmarks>) -> Vec<Comparisons> {
+fn by_bench_name(nbs: Vec<NamedBenchmarks>) -> Vec<NamedComparisons> {
     let mut map: BTreeMap<String, Vec<(String, Benchmark)>> = {
-        benchmarks.iter()
-            .flat_map(|b| b.benchmarks.iter().map(|b| b.name.clone()))
+        nbs.iter()
+            .flat_map(|nb| nb.benchmarks.iter().map(|b| b.name.clone()))
             .zip(::std::iter::once(Vec::new()).cycle())
             .collect()
     };
 
-    for benches in benchmarks {
-        for bench in benches.benchmarks {
-            map.get_mut(&bench.name).unwrap().push((benches.name.clone(), bench));
+    for nb in nbs {
+        for b in nb.benchmarks {
+            map.get_mut(&b.name).unwrap().push((nb.name.clone(), b));
         }
     }
 
     let (singles, res) = map.into_iter()
         .map(|(k, v)| {
-            Comparisons {
+            NamedComparisons {
                 bench_name: k,
                 assocs: v,
             }
@@ -166,26 +166,29 @@ fn by_bench_name(benchmarks: Vec<Benchmarks>) -> Vec<Comparisons> {
 }
 
 // Grabs to two to compare, filters by module name, does the regex replace
-fn filter_benchmarks(benchmarks: Vec<Benchmarks>,
+fn filter_benchmarks(mut nbs: Vec<NamedBenchmarks>,
                      settings: &TableSettings)
-                     -> Result<Vec<Benchmarks>, regex::Error> {
+                     -> Result<Vec<NamedBenchmarks>, regex::Error> {
     use cmd::TableCompareBy::*;
-    fn b_w_name(benchmarks: &Vec<Benchmarks>, name: &String) -> Benchmarks {
-        benchmarks.iter()
+    macro_rules! extract {
+        ($e:expr) => { ::std::mem::replace(&mut $e, NamedBenchmarks::default())}
+    }
+
+    fn b_w_name(nbs: &Vec<NamedBenchmarks>, name: &String) -> NamedBenchmarks {
+        nbs.iter()
             .find(|b| b.name == *name)
             .map(Clone::clone)
-            .unwrap_or_else(|| Benchmarks::new(name.clone()))
+            .unwrap_or_else(|| NamedBenchmarks::new(name.clone()))
     }
+
     Ok(match settings.compare_by {
-        Module(ref name_0, ref name_1) => {
-            vec![b_w_name(&benchmarks, name_0), b_w_name(&benchmarks, name_1)]
-        }
-        File => vec![benchmarks[0].clone(), benchmarks[1].clone()],
+        Module(ref name_0, ref name_1) => vec![b_w_name(&nbs, name_0), b_w_name(&nbs, name_1)],
+        File => vec![extract!(nbs[0]), extract!(nbs[1])],
     })
 }
 
 /// Write the pairs of benchmarks in a table, along with their comparison
-fn write_pairs(pairs: Vec<Comparisons>, settings: TableSettings) -> Result<(), io::Error> {
+fn write_pairs(pairs: Vec<NamedComparisons>, settings: TableSettings) -> Result<(), io::Error> {
     use cmd::Show::{Regressions, Improvements};
     use std::io;
     use std::fs::File;
@@ -228,7 +231,7 @@ fn write_pairs(pairs: Vec<Comparisons>, settings: TableSettings) -> Result<(), i
     Ok(())
 }
 
-fn plot_benchmarks(named: Vec<Comparisons>, settings: PlotSettings) -> Result<(), io::Error> {
+fn plot_benchmarks(ncs: Vec<NamedComparisons>, settings: PlotSettings) -> Result<(), io::Error> {
     use gnuplot::AxesCommon;
     use gnuplot::Tick;
     use gnuplot::TickOption;
@@ -258,25 +261,23 @@ fn plot_benchmarks(named: Vec<Comparisons>, settings: PlotSettings) -> Result<()
         s.replace('_', r"\\_")
     }
 
-    println!("Writing {} images to {}", named.len(), path.display());
+    println!("Writing {} images to {}", ncs.len(), path.display());
 
-    for comparisons in named {
+    for cs in ncs {
         let mut figure = Figure::new();
 
         {
-            let xs = 0..comparisons.assocs.len();
+            let xs = 0..cs.assocs.len();
             let x_ticks: Vec<Tick<usize>> = xs.clone()
-                .map(|x| Tick::Major(x, AutoOption::Fix(escape(&comparisons.assocs[x].0))))
+                .map(|x| Tick::Major(x, AutoOption::Fix(escape(&cs.assocs[x].0))))
                 .collect();
-            let ys: Vec<usize> = comparisons.assocs.iter().map(|t| t.1.ns).collect();
-            let y_err = comparisons.assocs.iter().map(|t| t.1.variance);
-            let y_min =
-                comparisons.assocs.iter().map(|t| t.1.ns - t.1.variance).min().unwrap() as f64 *
-                0.98;
-            let y_max =
-                comparisons.assocs.iter().map(|t| t.1.ns + t.1.variance).max().unwrap() as f64 *
-                1.02;
-            let bench_name = escape(&comparisons.bench_name);
+            let ys: Vec<usize> = cs.assocs.iter().map(|t| t.1.ns).collect();
+            let y_err = cs.assocs.iter().map(|t| t.1.variance);
+            let y_min = cs.assocs.iter().map(|t| t.1.ns - t.1.variance).min().unwrap() as f64 *
+                        0.98;
+            let y_max = cs.assocs.iter().map(|t| t.1.ns + t.1.variance).max().unwrap() as f64 *
+                        1.02;
+            let bench_name = escape(&cs.bench_name);
             let options = [PlotOption::Color("black"),
                            PlotOption::FillAlpha(0.6_f64),
                            PlotOption::BorderColor("#FFFFFF")];
@@ -297,9 +298,7 @@ fn plot_benchmarks(named: Vec<Comparisons>, settings: PlotSettings) -> Result<()
                                  PlotOption::Color("red")]);
         }
 
-        let path = path.join(format!("{}.{}",
-                                     comparisons.bench_name.replace("::", ".."),
-                                     settings.format));
+        let path = path.join(format!("{}.{}", cs.bench_name.replace("::", ".."), settings.format));
 
         let formatstr = match settings.format {
             Pdf => "pdfcairo",
@@ -317,13 +316,13 @@ fn plot_benchmarks(named: Vec<Comparisons>, settings: PlotSettings) -> Result<()
 }
 
 /// Print a warning message if there are benchmarks outside of the overlap
-fn warn_missing(v: Vec<Comparisons>) {
+fn warn_missing(ncs: Vec<NamedComparisons>) {
     let mut map = BTreeMap::new();
 
-    for comparisons in v {
-        map.entry(comparisons.assocs[0].0.clone())
+    for cs in ncs {
+        map.entry(cs.assocs[0].0.clone())
             .or_insert_with(Vec::new)
-            .push(comparisons.bench_name);
+            .push(cs.bench_name);
     }
 
     for (k, v) in map {

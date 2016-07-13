@@ -20,10 +20,19 @@ pub struct Benchmark {
 /// A collection of `Benchmark`s with a name for the collection.
 /// The name is usually the file the `Benchmark`s were read from,
 ///  or the module they were all in.
-#[derive(Debug, Clone)]
-pub struct Benchmarks {
+#[derive(Debug, Clone, Default)]
+pub struct NamedBenchmarks {
     pub name: String,
     pub benchmarks: Vec<Benchmark>,
+}
+
+impl NamedBenchmarks {
+    pub fn new(name: String) -> Self {
+        NamedBenchmarks {
+            name: name,
+            benchmarks: Vec::new(),
+        }
+    }
 }
 
 /// A comparison between an old and a new benchmark.
@@ -44,12 +53,12 @@ pub struct Comparison {
 ///  with the file or module from which it came. The name of the benchmark is
 ///  also available at this struct's level for convenience.
 #[derive(Debug, Clone)]
-pub struct Comparisons {
+pub struct NamedComparisons {
     pub bench_name: String,
     pub assocs: Vec<(String, Benchmark)>,
 }
 
-impl Comparisons {
+impl NamedComparisons {
     pub fn compare(&self, i1: usize, i2: usize) -> Comparison {
         self.assocs[i1].1.clone().compare(self.assocs[i2].1.clone())
     }
@@ -139,7 +148,7 @@ impl Comparison {
 }
 
 /// Tries to use the string as path to open a File. Reads the benchmarks from the file.
-pub fn parse_benchmarks(s: String) -> Result<Benchmarks, io::Error> {
+pub fn parse_benchmarks(s: String) -> Result<NamedBenchmarks, io::Error> {
     let file = try!(File::open(s.clone()));
 
     let reader = BufReader::new(file);
@@ -149,7 +158,7 @@ pub fn parse_benchmarks(s: String) -> Result<Benchmarks, io::Error> {
         _ => true,
     });
 
-    Ok(Benchmarks {
+    Ok(NamedBenchmarks {
         name: s,
         benchmarks: lines.filter_map(Result::ok)
             .filter_map(Benchmark::parse)
@@ -157,23 +166,14 @@ pub fn parse_benchmarks(s: String) -> Result<Benchmarks, io::Error> {
     })
 }
 
-impl Benchmarks {
-    pub fn new(name: String) -> Self {
-        Benchmarks {
-            name: name,
-            benchmarks: Vec::new(),
-        }
-    }
-}
-
 /// Filter the names in every benchmark, based on the regex string
-pub fn strip_names(mut benches: Benchmarks, re: &Regex) -> Benchmarks {
-    benches.benchmarks = benches.benchmarks
+pub fn strip_names(mut nbs: NamedBenchmarks, re: &Regex) -> NamedBenchmarks {
+    nbs.benchmarks = nbs.benchmarks
         .into_iter()
         .map(|mut b| {
             b.filter_name(re);
             b
         })
         .collect();
-    benches
+    nbs
 }
