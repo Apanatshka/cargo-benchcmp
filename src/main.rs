@@ -6,7 +6,6 @@ extern crate lazy_static;
 extern crate regex;
 #[macro_use]
 extern crate prettytable;
-extern crate gnuplot;
 
 mod cmd;
 mod benchmark;
@@ -14,7 +13,6 @@ mod utils;
 
 use docopt::Docopt;
 use prettytable::format;
-use gnuplot::Figure;
 use regex::Regex;
 
 use cmd::{TableSettings, PlotSettings, CompareBy};
@@ -232,17 +230,17 @@ fn write_pairs(pairs: Vec<NamedComparisons>, settings: TableSettings) -> Result<
 }
 
 fn plot_benchmarks(ncs: Vec<NamedComparisons>, settings: PlotSettings) -> Result<(), io::Error> {
-    use gnuplot::AxesCommon;
-    use gnuplot::Tick;
-    use gnuplot::TickOption;
-    use gnuplot::PlotOption;
-    use gnuplot::AutoOption;
-
     use cmd::OutputFormat::*;
     use std::path::Path;
     use std::fs::DirBuilder;
 
-    // TODO: look up cargo environment variables to get project root
+    let mut gnuplot_script = String::new();
+
+    macro_rules! w {
+        ($($tt:tt)*) => { gnuplot_script.push_str(format!($($tt)*).as_str()) }
+    }
+
+    // TODO: Somehow get project root? Cargo doesn't provide it in an environment variable..
     let path = Path::new("target/benchcmp");
     match DirBuilder::new().create(path) {
         Ok(()) => {}
@@ -255,64 +253,78 @@ fn plot_benchmarks(ncs: Vec<NamedComparisons>, settings: PlotSettings) -> Result
         }
     }
 
-    /// Escapes strings for gnuplot. Since labels are wrapped in double quotes, we need *two*
-    ///  backslashes before every underscore to make it display the underscore.
-    fn escape(s: &String) -> String {
-        s.replace('_', r"\\_")
-    }
+    let term_str = match settings.format {
+        Pdf => "pdfcairo",
+        Eps => "epscairo",
+        Png => "pngcairo",
+        Svg => "svg",
+    };
 
-    println!("Writing {} images to {}", ncs.len(), path.display());
+    err_println!("Writing {} plots to {}", ncs.len(), path.display());
 
     for cs in ncs {
-        let mut figure = Figure::new();
-
-        {
-            let xs = 0..cs.assocs.len();
-            let x_ticks: Vec<Tick<usize>> = xs.clone()
-                .map(|x| Tick::Major(x, AutoOption::Fix(escape(&cs.assocs[x].0))))
-                .collect();
-            let ys: Vec<usize> = cs.assocs.iter().map(|t| t.1.ns).collect();
-            let y_err = cs.assocs.iter().map(|t| t.1.variance);
-            let y_min = cs.assocs.iter().map(|t| t.1.ns - t.1.variance).min().unwrap() as f64 *
-                        0.98;
-            let y_max = cs.assocs.iter().map(|t| t.1.ns + t.1.variance).max().unwrap() as f64 *
-                        1.02;
-            let bench_name = escape(&cs.bench_name);
-            let options = [PlotOption::Color("black"),
-                           PlotOption::FillAlpha(0.6_f64),
-                           PlotOption::BorderColor("#FFFFFF")];
-
-            figure.axes2d()
-                .set_title(bench_name.as_str(), &[])
-                .boxes(xs.clone(), ys.clone(), &options)
-                .set_x_ticks_custom(x_ticks,
-                                    &[TickOption::Mirror(false), TickOption::MajorScale(0_f64)],
-                                    &[])
-                .set_y_label("ns/iter", &[])
-                .set_y_range(AutoOption::Fix(y_min), AutoOption::Fix(y_max))
-                .y_error_lines(xs,
-                               ys,
-                               y_err,
-                               &[PlotOption::PointSize(0_f64),
-                                 PlotOption::LineWidth(2_f64),
-                                 PlotOption::Color("red")]);
-        }
+        w!("set terminal {} noenhanced\n", term_str);
 
         let path = path.join(format!("{}.{}", cs.bench_name.replace("::", ".."), settings.format));
 
-        let formatstr = match settings.format {
-            Pdf => "pdfcairo",
-            Eps => "epscairo",
-            Png => "pngcairo",
-            Svg => "svg",
-        };
+        w!("set output '{}'\n",
+           path.to_str().expect("path contains invalid unicode"));
 
-        figure.set_terminal(formatstr,
-                            path.to_str().expect("path contains invalid unicode"));
-        figure.show();
+        w!("set title '{}'\n", cs.bench_name);
+        w!("set ylabel 'ns/iter'\n");
+
+        w!("set boxwidth 0.9\n");
+        w!("set style data histograms\n");
+        w!("set style fill solid 1.0\n");
+        w!("set bars fullwidth\n");
+        w!("set style fill solid border -1\n");
+        w!("set style histogram errorbars gap 2 lw 1\n");
+
+        w!("unset xtics\n");
+        // round length down to even number. A little over 3 bars fit between 0 and 0.5
+        let x_min = (cs.assocs.len() / 2 * 2) as f64 / 12.0;
+        // round length up to even number + 4. The additional two is space for the legend.
+        let x_max = ((cs.assocs.len() + 5) / 2 * 2) as f64 / 12.0;
+        w!("set xrange [{:.2}:{:.2}]\n", -x_min, x_max);
+        w!("set ytics border mirror norotate\n");
+        let y_max = cs.assocs.iter().map( | t | t.1.ns + t.1.variance).max().unwrap() as f64 * 1.02;
+        w!("set yrange [0:{:.12e}]\n", y_max);
+
+        w!("plot ");
+
+        {
+            w!("{}", &cs.assocs.iter().map(|assoc| {
+                format!("'-' binary endian=little record=1 format='%uint64' using 1:2 title '{}'", assoc.0)
+            }).collect::<Vec<String>>().join(", "));
+        }
+        w!("\n");
+
+        {
+            use std::process::{Command, Stdio};
+
+            let mut gnuplot_script = gnuplot_script.into_bytes();
+
+            for assoc in &cs.assocs {
+                gnuplot_script.append(&mut Vec::from(&to_bytes(assoc.1.ns as u64) as &[u8]));
+                gnuplot_script.append(&mut Vec::from(&to_bytes(assoc.1.variance as u64) as &[u8]));
+            }
+
+            let gnuplot_script = gnuplot_script.as_slice();
+
+            let process = Command::new("gnuplot").arg("-p").stdin(Stdio::piped()).spawn().ok().expect("Couldn't spawn gnuplot. Make sure it is installed and available in PATH.");
+            try!(process.stdin.expect("Umm, stdin of the gnuplot process just went missing?").write(gnuplot_script).map(|_| ()));
+        }
+
+        gnuplot_script = String::new();
     }
 
     Ok(())
+}
+
+fn to_bytes(u: u64) -> [u8; 8] {
+    unsafe {
+        ::std::mem::transmute(u.to_le())
+    }
 }
 
 /// Print a warning message if there are benchmarks outside of the overlap
